@@ -1,4 +1,4 @@
-# opensmtpd-filter-dkimverify
+# filter-dkimverify
 
 An OpenSMTPD filter that verifies DKIM signatures and checks SPF domain alignment on incoming messages. It inserts an `Authentication-Results` header with the verification outcome and can optionally reject messages that fail authentication.
 
@@ -20,12 +20,12 @@ Requires Rust 1.56+ (edition 2021).
 cargo build --release
 ```
 
-The binary will be at `target/release/opensmtpd-filter-dkimverify`.
+The binary will be at `target/release/filter-dkimverify`.
 
 ## Usage
 
 ```
-opensmtpd-filter-dkimverify [OPTIONS]
+filter-dkimverify [OPTIONS]
 ```
 
 ### Options
@@ -41,7 +41,7 @@ opensmtpd-filter-dkimverify [OPTIONS]
 Add the filter to your `smtpd.conf`:
 
 ```
-filter dkimverify proc-exec "/usr/local/libexec/opensmtpd-filter-dkimverify -H mail.example.com"
+filter dkimverify proc-exec "/usr/local/libexec/filter-dkimverify -H mail.example.com"
 
 listen on all filter dkimverify
 ```
@@ -49,7 +49,7 @@ listen on all filter dkimverify
 To reject unauthenticated mail:
 
 ```
-filter dkimverify proc-exec "/usr/local/libexec/opensmtpd-filter-dkimverify -H mail.example.com --reject-on-fail"
+filter dkimverify proc-exec "/usr/local/libexec/filter-dkimverify -H mail.example.com --reject-on-fail"
 ```
 
 ### Logging
@@ -57,7 +57,7 @@ filter dkimverify proc-exec "/usr/local/libexec/opensmtpd-filter-dkimverify -H m
 Logs are written to stderr at `info` level by default. Control verbosity with the `RUST_LOG` environment variable:
 
 ```
-filter dkimverify proc-exec "RUST_LOG=debug /usr/local/libexec/opensmtpd-filter-dkimverify -H mail.example.com"
+filter dkimverify proc-exec "RUST_LOG=debug /usr/local/libexec/filter-dkimverify -H mail.example.com"
 ```
 
 ## Example output
