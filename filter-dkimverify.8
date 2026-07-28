@@ -1,0 +1,50 @@
+.Dd $Mdocdate$
+.Dt FILTER-DKIMVERIFY 8
+.Os
+.Sh NAME
+.Nm filter-dkimverify
+.Nd verifies dkim signature of messages and checks spf alignment
+.Sh SYNOPSIS
+.Nm
+.Op Fl H Ar host | Fl -hostname Ar host
+.Op Fl r No | Fl -reject-on-fail
+.Op Fl -reject-message Ar message
+.Sh DESCRIPTION
+.Nm
+verifies the dkim signatures of messages and adds an Authentication-Results
+header to the message.
+The following flags are supported:
+.Bl -tag -width Ds
+.It Fl H Ar host
+The
+.Ar host
+for the Authentication-Results header.
+.It Fl r No | Fl -reject-on-fail
+Reject messages that fail DKIM/SPF checks.
+.It Fl -reject-message Ar message
+Custom rejection
+.Ar message.
+The default is "550 5.7.1 DKIM verification failed".
+.Sh SEE ALSO 
+.Xr smtpd 8
+.Sh STANDARDS
+.Rs
+.%A D. Crocker, Ed.
+.%Q Brandenburg InternetWorking
+.%A T. Hansen, Ed.
+.%Q AT&T Laboratories
+.%A M. Kucherawy, Ed.
+.%Q Cloudmark
+.%D September 2011
+.%R RFC 6376
+.%T DomainKeys Identified Mail (DKIM) Signatures
+.Re
+.Pp
+.Rs
+.%A J. Levine
+.%Q Taughannock Networks
+.%D September 2018
+.%R RFC 8463
+.%T A New Cryptographic Signature Method for DomainKeys Identified Mail
+.Sh AUTHORS
+.An Chris Kruger Aq Mt montdidier@users.noreply.github.com
