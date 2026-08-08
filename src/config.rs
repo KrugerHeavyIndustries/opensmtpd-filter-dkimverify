@@ -14,8 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-use std::net::SocketAddr;
-use std::time::SystemTime;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]

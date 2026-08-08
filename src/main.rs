@@ -14,9 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-use std::net::SocketAddr;
-use std::time::SystemTime;
-
 mod config;
 mod verify;
 
@@ -77,8 +74,9 @@ impl Filter for DkimVerifyFilter {
         let auth_header = format_auth_results(&self.config.hostname, &result);
         info!(
             reqid = format_args!("{:016x}", reqid),
-            dkim = %result.dkim_detail,
-            spf = %result.spf_detail,
+            dkim = result.dkim.result,
+            spf = result.spf.result,
+            aligned = result.alignment_pass,
             "verification complete"
         );
 
@@ -107,10 +105,12 @@ impl Filter for DkimVerifyFilter {
 
     fn on_filter_commit(&mut self, session: &Session) -> FilterResponse {
         if let Some(result) = self.pending_results.remove(&session.reqid) {
-            if !result.dkim_pass || !result.spf_aligned {
+            let dkim_pass = result.dkim.result == "pass";
+            let spf_pass = result.spf.result == "pass";
+            if !dkim_pass || !spf_pass || !result.alignment_pass {
                 warn!(
                     reqid = format_args!("{:016x}", session.reqid),
-                    dkim_domain = ?result.dkim_domain,
+                    dkim_domain = ?result.dkim.domain,
                     "rejecting message: authentication failed"
                 );
                 return FilterResponse::Reject {

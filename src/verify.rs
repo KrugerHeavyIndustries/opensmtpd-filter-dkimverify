@@ -14,49 +14,71 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-use std::net::SocketAddr;
-use std::time::SystemTime;
+use std::net::IpAddr;
 
 use mail_auth::common::verify::VerifySignature;
-use mail_auth::{AuthenticatedMessage, DkimResult, Resolver};
+use mail_auth::{AuthenticatedMessage, DkimResult, Resolver, SpfResult};
 
 #[derive(Debug, Clone)]
 pub struct VerificationResult {
-    pub dkim_pass: bool,
-    pub dkim_domain: Option<String>,
-    pub dkim_detail: String,
-    pub spf_aligned: bool,
-    pub spf_detail: String,
+    pub dkim: DkimStatus,
+    pub spf: SpfStatus,
+    pub alignment_pass: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct DkimStatus {
+    pub result: &'static str,
+    pub domain: Option<String>,
+    pub selector: Option<String>,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SpfStatus {
+    pub result: &'static str,
+    pub smtp_mailfrom: Option<String>,
+    pub smtp_helo: Option<String>,
 }
 
 pub async fn verify_message(
     resolver: &Resolver,
     raw_message: &[u8],
     mail_from: Option<&str>,
-    _helo_domain: Option<&str>,
-    _source_ip: Option<&str>,
+    helo_domain: Option<&str>,
+    source_ip: Option<&str>,
 ) -> VerificationResult {
     let dkim_result = verify_dkim(resolver, raw_message).await;
-    let spf_result = check_spf_alignment(&dkim_result, mail_from);
+    let spf_result = verify_spf(resolver, source_ip, helo_domain, mail_from).await;
+    let alignment_pass = check_dkim_alignment(&dkim_result, mail_from);
 
     VerificationResult {
-        dkim_pass: dkim_result.pass,
-        dkim_domain: dkim_result.domain,
-        dkim_detail: dkim_result.detail,
-        spf_aligned: spf_result.aligned,
-        spf_detail: spf_result.detail,
+        dkim: DkimStatus {
+            result: dkim_result.result,
+            domain: dkim_result.domain,
+            selector: dkim_result.selector,
+            comment: dkim_result.comment,
+        },
+        spf: SpfStatus {
+            result: spf_result.result,
+            smtp_mailfrom: spf_result.smtp_mailfrom,
+            smtp_helo: spf_result.smtp_helo,
+        },
+        alignment_pass,
     }
 }
 
 struct DkimVerifyResult {
-    pass: bool,
+    result: &'static str,
     domain: Option<String>,
-    detail: String,
+    selector: Option<String>,
+    comment: Option<String>,
 }
 
-struct SpfAlignmentResult {
-    aligned: bool,
-    detail: String,
+struct SpfVerifyResult {
+    result: &'static str,
+    smtp_mailfrom: Option<String>,
+    smtp_helo: Option<String>,
 }
 
 async fn verify_dkim(resolver: &Resolver, raw_message: &[u8]) -> DkimVerifyResult {
@@ -64,9 +86,10 @@ async fn verify_dkim(resolver: &Resolver, raw_message: &[u8]) -> DkimVerifyResul
         Some(msg) => msg,
         None => {
             return DkimVerifyResult {
-                pass: false,
+                result: "none",
                 domain: None,
-                detail: "none (message parse failure)".to_string(),
+                selector: None,
+                comment: Some("message parse failure".to_string()),
             };
         }
     };
@@ -75,30 +98,31 @@ async fn verify_dkim(resolver: &Resolver, raw_message: &[u8]) -> DkimVerifyResul
 
     if dkim_output.is_empty() {
         return DkimVerifyResult {
-            pass: false,
+            result: "none",
             domain: None,
-            detail: "none (no signature)".to_string(),
+            selector: None,
+            comment: Some("no signature".to_string()),
         };
     }
 
-    for result in dkim_output.iter() {
-        match result.result() {
+    for output in dkim_output.iter() {
+        let domain = output.signature().map(|s| s.domain().to_string());
+        let selector = output.signature().map(|s| s.selector().to_string());
+        match output.result() {
             DkimResult::Pass => {
-                let domain = result.signature().map(|s| s.domain().to_string());
-                let domain_str = domain.clone().unwrap_or_default();
                 return DkimVerifyResult {
-                    pass: true,
+                    result: "pass",
                     domain,
-                    detail: format!("pass (domain={})", domain_str),
+                    selector,
+                    comment: None,
                 };
             }
             DkimResult::Fail(err) => {
-                let domain = result.signature().map(|s| s.domain().to_string());
-                let domain_str = domain.clone().unwrap_or_default();
                 return DkimVerifyResult {
-                    pass: false,
+                    result: "fail",
                     domain,
-                    detail: format!("fail (domain={}, reason={})", domain_str, err),
+                    selector,
+                    comment: Some(err.to_string()),
                 };
             }
             _ => continue,
@@ -106,57 +130,68 @@ async fn verify_dkim(resolver: &Resolver, raw_message: &[u8]) -> DkimVerifyResul
     }
 
     DkimVerifyResult {
-        pass: false,
+        result: "none",
         domain: None,
-        detail: "none (no valid signature found)".to_string(),
+        selector: None,
+        comment: Some("no valid signature found".to_string()),
     }
 }
 
-fn check_spf_alignment(dkim_result: &DkimVerifyResult, mail_from: Option<&str>) -> SpfAlignmentResult {
-    let mail_from_domain = match mail_from {
-        Some(addr) => {
-            if let Some(at_pos) = addr.rfind('@') {
-                Some(addr[at_pos + 1..].to_lowercase())
-            } else {
-                None
-            }
+async fn verify_spf(
+    resolver: &Resolver,
+    source_ip: Option<&str>,
+    helo_domain: Option<&str>,
+    mail_from: Option<&str>,
+) -> SpfVerifyResult {
+    let ip: IpAddr = match source_ip.and_then(|s| s.parse().ok()) {
+        Some(ip) => ip,
+        None => {
+            return SpfVerifyResult {
+                result: "none",
+                smtp_mailfrom: mail_from.map(|s| s.to_string()),
+                smtp_helo: helo_domain.map(|s| s.to_string()),
+            };
         }
-        None => None,
+    };
+
+    let helo = helo_domain.unwrap_or("unknown");
+    let default_sender = format!("postmaster@{}", helo);
+    let sender = mail_from.unwrap_or(&default_sender);
+
+    let output = resolver.verify_spf(ip, helo, helo, sender).await;
+
+    let result = match output.result() {
+        SpfResult::Pass => "pass",
+        SpfResult::Fail => "fail",
+        SpfResult::SoftFail => "softfail",
+        SpfResult::Neutral => "neutral",
+        SpfResult::TempError => "temperror",
+        SpfResult::PermError => "permerror",
+        SpfResult::None => "none",
+    };
+
+    SpfVerifyResult {
+        result,
+        smtp_mailfrom: mail_from.map(|s| s.to_string()),
+        smtp_helo: Some(helo.to_string()),
+    }
+}
+
+fn check_dkim_alignment(dkim_result: &DkimVerifyResult, mail_from: Option<&str>) -> bool {
+    let mail_from_domain = match mail_from {
+        Some(addr) => match addr.rfind('@') {
+            Some(at_pos) => addr[at_pos + 1..].to_lowercase(),
+            None => return false,
+        },
+        None => return false,
     };
 
     let dkim_domain = match &dkim_result.domain {
         Some(d) => d.to_lowercase(),
-        None => {
-            return SpfAlignmentResult {
-                aligned: false,
-                detail: "none (no DKIM domain to align against)".to_string(),
-            };
-        }
+        None => return false,
     };
 
-    let mail_domain = match mail_from_domain {
-        Some(d) => d,
-        None => {
-            return SpfAlignmentResult {
-                aligned: false,
-                detail: "none (no envelope sender domain)".to_string(),
-            };
-        }
-    };
-
-    let aligned = domains_align(&mail_domain, &dkim_domain);
-
-    if aligned {
-        SpfAlignmentResult {
-            aligned: true,
-            detail: format!("pass (domain alignment: {} ~ {})", mail_domain, dkim_domain),
-        }
-    } else {
-        SpfAlignmentResult {
-            aligned: false,
-            detail: format!("fail (domain mismatch: {} vs {})", mail_domain, dkim_domain),
-        }
-    }
+    domains_align(&mail_from_domain, &dkim_domain)
 }
 
 fn domains_align(domain_a: &str, domain_b: &str) -> bool {
@@ -178,10 +213,31 @@ fn organizational_domain(domain: &str) -> &str {
 }
 
 pub fn format_auth_results(hostname: &str, result: &VerificationResult) -> String {
-    format!(
-        "Authentication-Results: {}; dkim={}; spf={}",
-        hostname, result.dkim_detail, result.spf_detail
-    )
+    let mut parts = Vec::new();
+
+    // dkim method
+    let mut dkim_part = format!("dkim={}", result.dkim.result);
+    if let Some(comment) = &result.dkim.comment {
+        dkim_part.push_str(&format!(" ({})", comment));
+    }
+    if let Some(domain) = &result.dkim.domain {
+        dkim_part.push_str(&format!(" header.d={}", domain));
+    }
+    if let Some(selector) = &result.dkim.selector {
+        dkim_part.push_str(&format!(" header.s={}", selector));
+    }
+    parts.push(dkim_part);
+
+    // spf method
+    let mut spf_part = format!("spf={}", result.spf.result);
+    if let Some(mailfrom) = &result.spf.smtp_mailfrom {
+        spf_part.push_str(&format!(" smtp.mailfrom={}", mailfrom));
+    } else if let Some(helo) = &result.spf.smtp_helo {
+        spf_part.push_str(&format!(" smtp.helo={}", helo));
+    }
+    parts.push(spf_part);
+
+    format!("Authentication-Results: {}; {}", hostname, parts.join("; "))
 }
 
 #[cfg(test)]
@@ -210,5 +266,51 @@ mod tests {
         assert_eq!(organizational_domain("example.com"), "example.com");
         assert_eq!(organizational_domain("mail.example.com"), "example.com");
         assert_eq!(organizational_domain("a.b.example.com"), "example.com");
+    }
+
+    #[test]
+    fn test_format_auth_results_pass() {
+        let result = VerificationResult {
+            dkim: DkimStatus {
+                result: "pass",
+                domain: Some("example.com".to_string()),
+                selector: Some("sel1".to_string()),
+                comment: None,
+            },
+            spf: SpfStatus {
+                result: "pass",
+                smtp_mailfrom: Some("user@example.com".to_string()),
+                smtp_helo: Some("mail.example.com".to_string()),
+            },
+            alignment_pass: true,
+        };
+        let header = format_auth_results("mx.example.com", &result);
+        assert_eq!(
+            header,
+            "Authentication-Results: mx.example.com; dkim=pass header.d=example.com header.s=sel1; spf=pass smtp.mailfrom=user@example.com"
+        );
+    }
+
+    #[test]
+    fn test_format_auth_results_fail() {
+        let result = VerificationResult {
+            dkim: DkimStatus {
+                result: "fail",
+                domain: Some("spoofed.com".to_string()),
+                selector: None,
+                comment: Some("body hash did not verify".to_string()),
+            },
+            spf: SpfStatus {
+                result: "none",
+                smtp_mailfrom: None,
+                smtp_helo: Some("unknown".to_string()),
+            },
+            alignment_pass: false,
+        };
+        let header = format_auth_results("mx.example.com", &result);
+        assert_eq!(
+            header,
+            "Authentication-Results: mx.example.com; dkim=fail (body hash did not verify) header.d=spoofed.com; spf=none smtp.helo=unknown"
+        );
     }
 }
