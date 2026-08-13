@@ -1,4 +1,8 @@
-# filter-dkimverify
+# filter-skimverify
+
+   "skim" (a portmanteau of "spf" and "dkim")
+
+Yes, it is cheesy but it does the job.
 
 An OpenSMTPD filter that verifies DKIM signatures, performs SPF checks, and validates DKIM domain alignment on incoming messages. It inserts an `Authentication-Results` header with the verification outcomes and can optionally reject messages that fail authentication.
 
