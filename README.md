@@ -25,12 +25,12 @@ Requires Rust 1.56+ (edition 2021).
 cargo build --release
 ```
 
-The binary will be at `target/release/filter-dkimverify`.
+The binary will be at `target/release/filter-skimverify`.
 
 ## Usage
 
 ```
-filter-dkimverify [OPTIONS]
+filter-skimverify [OPTIONS]
 ```
 
 ### Options
@@ -46,15 +46,15 @@ filter-dkimverify [OPTIONS]
 Add the filter to your `smtpd.conf`:
 
 ```
-filter dkimverify proc-exec "/usr/local/libexec/filter-dkimverify -H mail.example.com"
+filter skimverify proc-exec "/usr/local/libexec/filter-skimverify -H mail.example.com"
 
-listen on all filter dkimverify
+listen on all filter skimverify
 ```
 
 To reject unauthenticated mail:
 
 ```
-filter dkimverify proc-exec "/usr/local/libexec/filter-dkimverify -H mail.example.com --reject-on-fail"
+filter skimverify proc-exec "/usr/local/libexec/filter-skimverify -H mail.example.com --reject-on-fail"
 ```
 
 ### Logging
@@ -62,7 +62,7 @@ filter dkimverify proc-exec "/usr/local/libexec/filter-dkimverify -H mail.exampl
 Logs are written to stderr at `info` level by default. Control verbosity with the `RUST_LOG` environment variable:
 
 ```
-filter dkimverify proc-exec "RUST_LOG=debug /usr/local/libexec/filter-dkimverify -H mail.example.com"
+filter skimverify proc-exec "RUST_LOG=debug /usr/local/libexec/filter-skimverify -H mail.example.com"
 ```
 
 ## Example output
