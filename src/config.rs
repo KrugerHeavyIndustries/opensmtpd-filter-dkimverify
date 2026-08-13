@@ -17,7 +17,7 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "opensmtpd-filter-dkimverify")]
+#[command(name = "opensmtpd-filter-skimverify")]
 #[command(about = "OpenSMTPD filter for DKIM verification and SPF alignment")]
 pub struct Config {
     /// Hostname to use in Authentication-Results header

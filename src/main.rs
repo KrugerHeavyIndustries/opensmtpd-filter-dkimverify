@@ -134,7 +134,7 @@ fn main() -> ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("opensmtpd_filter_dkimverify=info".parse().unwrap()),
+                .add_directive("opensmtpd_filter_skimverify=info".parse().unwrap()),
         )
         .with_writer(io::stderr)
         .init();
